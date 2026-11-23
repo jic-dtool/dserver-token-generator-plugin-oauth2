@@ -2,13 +2,13 @@
 Flask blueprint for OAuth2 authentication.
 
 This blueprint provides the following endpoints:
-- GET /auth/login - Initiate OAuth2 authorization flow
-- GET /auth/callback - OAuth2 callback (receives authorization code)
-- GET/POST /auth/logout - Clear session and logout
-- GET /auth/token - Get current user's JWT token
-- POST /auth/token - Exchange credentials for JWT token (API access)
-- POST /auth/refresh - Refresh an existing JWT token
-- POST /auth/verify - Verify a JWT token
+- GET /auth/oauth2/login - Initiate OAuth2 authorization flow
+- GET /auth/oauth2/callback - OAuth2 callback (receives authorization code)
+- GET/POST /auth/oauth2/logout - Clear session and logout
+- GET /auth/oauth2/token - Get current user's JWT token
+- POST /auth/oauth2/refresh - Refresh a JWT token, at most until
+  JWT_MAX_SESSION_HOURS after the original login
+- POST /auth/oauth2/verify - Verify a JWT token
 """
 
 import logging
@@ -409,58 +409,6 @@ def get_token():
         "token": token,
         "username": username,
         "provider": provider,
-        "token_type": "Bearer",
-    })
-
-
-@oauth2_bp.route("/token", methods=["POST"])
-def create_token():
-    """
-    Exchange credentials for a JWT token (API access).
-
-    Request body:
-        {
-            "api_key": "...",
-            "username": "..."
-        }
-
-    Returns:
-        JSON with token or error
-    """
-    import os
-
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"error": "Missing request body"}), 400
-
-    api_key = data.get("api_key")
-    username = data.get("username")
-
-    if not api_key or not username:
-        return jsonify({"error": "Missing api_key or username"}), 400
-
-    # Validate API key
-    valid_api_key = os.environ.get("OAUTH2_API_KEY")
-
-    if not valid_api_key:
-        logger.warning("API key authentication not configured")
-        return jsonify({"error": "API authentication not configured"}), 501
-
-    if api_key != valid_api_key:
-        logger.warning(f"Invalid API key for user: {username}")
-        return jsonify({"error": "Invalid credentials"}), 401
-
-    # Generate token
-    jwt_gen = get_jwt_generator()
-    token = jwt_gen.generate_token(
-        username=username,
-        permissions=["search", "retrieve"],
-    )
-
-    return jsonify({
-        "token": token,
-        "username": username,
         "token_type": "Bearer",
     })
 
