@@ -98,8 +98,8 @@ The plugin needs to know how to extract user information from the OAuth2 provide
 | `JWT_PRIVATE_KEY_FILE` | Path to RSA private key | `/app/jwt/jwt_key` |
 | `JWT_PUBLIC_KEY_FILE` | Path to RSA public key | `/app/jwt/jwt_key.pub` |
 | `JWT_ALGORITHM` | Signing algorithm | `RS256` |
-| `JWT_ISSUER` | Token issuer claim | `dserver` |
-| `JWT_AUDIENCE` | Token audience claim | `dserver` |
+| `JWT_ISSUER` | Token issuer claim; must match dserver's `JWT_DECODE_ISSUER` | dserver's `JWT_DECODE_ISSUER`, else `dserver` |
+| `JWT_AUDIENCE` | Token audience claim; must match dserver's `JWT_DECODE_AUDIENCE` | dserver's `JWT_DECODE_AUDIENCE`, else `dserver` |
 | `JWT_TOKEN_EXPIRY_HOURS` | Token validity period | `24` |
 | `JWT_MAX_SESSION_HOURS` | Maximum session age: tokens can be refreshed until this long after the original login (recorded in the `auth_time` claim), then the user must log in again | `168` |
 
@@ -284,7 +284,7 @@ See the `provider-docs/` directory for detailed setup guides:
 4. **Use state parameter** - The plugin automatically handles CSRF protection via OAuth2 state
 5. **Protect JWT keys** - Restrict file permissions on private key files
 6. **Bounded sessions** - Tokens record the login time (`auth_time`); refresh and device approval never extend a session beyond `JWT_MAX_SESSION_HOURS` after the login. dserver cannot revoke tokens, so keep `JWT_TOKEN_EXPIRY_HOURS` and `JWT_MAX_SESSION_HOURS` as short as practical
-7. **Audience and issuer** - Tokens carry `aud` and `iss` (`JWT_AUDIENCE`, `JWT_ISSUER`, default `dserver`), which dserver verifies by default
+7. **Audience and issuer** - Tokens carry `aud` and `iss`, which dserver verifies by default. They follow dserver's `JWT_DECODE_AUDIENCE` / `JWT_DECODE_ISSUER` (default `dserver`); set `JWT_AUDIENCE` / `JWT_ISSUER` only to issue other values
 
 ## Development
 

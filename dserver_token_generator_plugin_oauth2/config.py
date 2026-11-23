@@ -11,6 +11,19 @@ from typing import Optional
 from pathlib import Path
 
 
+def claim_from_env(key, dserver_key):
+    """Return the value of a token claim (issuer, audience).
+
+    The plugin's own setting (key) if set, else the value dserver requires
+    (dserver_key, JWT_DECODE_ISSUER / JWT_DECODE_AUDIENCE), else "dserver",
+    dserver's default. Tokens therefore match what dserver checks unless the
+    plugin is configured otherwise.
+    """
+    return (os.environ.get(key, "").strip()
+            or os.environ.get(dserver_key, "").strip()
+            or "dserver")
+
+
 @dataclass
 class OAuth2ProviderConfig:
     """OAuth2 Identity Provider configuration."""
@@ -114,8 +127,8 @@ class JwtConfig:
                 "JWT_PUBLIC_KEY_FILE", "/app/jwt/jwt_key.pub"
             ),
             algorithm=os.environ.get("JWT_ALGORITHM", "RS256"),
-            issuer=os.environ.get("JWT_ISSUER", "dserver"),
-            audience=os.environ.get("JWT_AUDIENCE", "dserver"),
+            issuer=claim_from_env("JWT_ISSUER", "JWT_DECODE_ISSUER"),
+            audience=claim_from_env("JWT_AUDIENCE", "JWT_DECODE_AUDIENCE"),
             token_expiry_hours=int(os.environ.get("JWT_TOKEN_EXPIRY_HOURS", "24")),
             max_session_hours=int(
                 os.environ.get("JWT_MAX_SESSION_HOURS", "168")),
