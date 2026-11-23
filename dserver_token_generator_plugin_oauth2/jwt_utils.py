@@ -59,6 +59,7 @@ class JwtTokenGenerator:
         display_name: Optional[str] = None,
         permissions: Optional[list] = None,
         additional_claims: Optional[dict] = None,
+        auth_time: Optional[int] = None,
     ) -> str:
         """
         Generate a JWT token for an authenticated user.
@@ -69,12 +70,20 @@ class JwtTokenGenerator:
             display_name: User's display name
             permissions: List of permissions/roles
             additional_claims: Any additional claims to include
+            auth_time: Time of the original login (Unix timestamp); now if
+                not given. The token never outlives the session, i.e. it
+                expires at the latest max_session_hours after auth_time.
 
         Returns:
             Signed JWT token string
         """
         now = datetime.now(timezone.utc)
-        expiry = now + timedelta(hours=self.config.token_expiry_hours)
+        if auth_time is None:
+            auth_time = int(now.timestamp())
+        session_end = datetime.fromtimestamp(auth_time, timezone.utc) + \
+            timedelta(hours=self.config.max_session_hours)
+        expiry = min(now + timedelta(hours=self.config.token_expiry_hours),
+                     session_end)
 
         payload = {
             # Standard JWT claims
@@ -84,6 +93,8 @@ class JwtTokenGenerator:
             "iat": now,
             "exp": expiry,
             "nbf": now,
+            # Time of the original login (OpenID Connect "auth_time")
+            "auth_time": auth_time,
 
             # Custom claims for dserver
             "username": username,
@@ -152,10 +163,27 @@ class JwtTokenGenerator:
         if payload is None:
             return None
 
-        # Generate new token with same claims
+        # The session starts at the original login. Tokens issued before
+        # auth_time was recorded fall back to their issue time.
+        auth_time = int(payload.get("auth_time", payload["iat"]))
+        session_end = auth_time + self.config.max_session_hours * 3600
+        if datetime.now(timezone.utc).timestamp() >= session_end:
+            logger.warning(
+                f"Refusing to refresh token of {payload['username']}: "
+                f"session older than {self.config.max_session_hours} hours")
+            return None
+
+        # Generate new token with same claims and session start
+        additional_claims = {
+            key: payload[key]
+            for key in ("provider", "provider_user_id")
+            if key in payload
+        }
         return self.generate_token(
             username=payload["username"],
             email=payload.get("email"),
             display_name=payload.get("name"),
             permissions=payload.get("permissions"),
+            additional_claims=additional_claims or None,
+            auth_time=auth_time,
         )

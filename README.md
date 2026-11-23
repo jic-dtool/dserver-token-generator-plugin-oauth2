@@ -98,6 +98,7 @@ The plugin needs to know how to extract user information from the OAuth2 provide
 | `JWT_ISSUER` | Token issuer claim | `dserver` |
 | `JWT_AUDIENCE` | Token audience claim | `dserver` |
 | `JWT_TOKEN_EXPIRY_HOURS` | Token validity period | `24` |
+| `JWT_MAX_SESSION_HOURS` | Maximum session age: tokens can be refreshed until this long after the original login (recorded in the `auth_time` claim), then the user must log in again | `168` |
 
 #### User Provisioning
 
@@ -132,8 +133,7 @@ All endpoints are under the `/auth` prefix.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/auth/token` | GET | Returns current user's JWT token |
-| `/auth/token` | POST | Exchange API key for token (programmatic access) |
-| `/auth/refresh` | POST | Refresh an existing JWT token |
+| `/auth/refresh` | POST | Refresh an existing JWT token, at most until `JWT_MAX_SESSION_HOURS` after the original login |
 | `/auth/verify` | POST | Verify a token and return its claims |
 
 ### Information

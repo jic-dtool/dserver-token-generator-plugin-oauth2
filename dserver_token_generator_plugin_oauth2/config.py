@@ -99,6 +99,9 @@ class JwtConfig:
     issuer: str = "dserver"
     audience: str = "dserver"
     token_expiry_hours: int = 24
+    # Maximum age of a session: tokens can be refreshed until this long
+    # after the original login, after which the user must log in again.
+    max_session_hours: int = 168
 
     @classmethod
     def from_env(cls) -> "JwtConfig":
@@ -114,6 +117,8 @@ class JwtConfig:
             issuer=os.environ.get("JWT_ISSUER", "dserver"),
             audience=os.environ.get("JWT_AUDIENCE", "dserver"),
             token_expiry_hours=int(os.environ.get("JWT_TOKEN_EXPIRY_HOURS", "24")),
+            max_session_hours=int(
+                os.environ.get("JWT_MAX_SESSION_HOURS", "168")),
         )
 
 
