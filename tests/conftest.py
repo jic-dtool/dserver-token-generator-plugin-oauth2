@@ -63,3 +63,19 @@ def app(monkeypatch, rsa_key_files):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture
+def db_app(app, monkeypatch):
+    """App with dserver's SQL database (in memory) for the device flow."""
+    from dservercore import sql_db
+
+    from dserver_token_generator_plugin_oauth2 import sql_models  # NOQA
+
+    monkeypatch.setenv("OAUTH2_DEVICE_POLL_INTERVAL", "0")
+    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+    sql_db.init_app(app)
+    with app.app_context():
+        sql_db.create_all()
+        yield app
+        sql_db.session.remove()

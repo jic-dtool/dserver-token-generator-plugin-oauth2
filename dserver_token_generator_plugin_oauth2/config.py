@@ -151,6 +151,13 @@ class PluginConfig:
     # GET /auth/token using the session cookie.
     deliver_token_in_fragment: bool = True
 
+    # Device authorization flow (RFC 8628) for command-line clients. The
+    # user approves the request at the verification URL, by default the
+    # webapp (frontend URL if absolute, otherwise the base URL).
+    device_verification_url: str = ""
+    device_code_lifetime_seconds: int = 600
+    device_poll_interval: int = 5
+
     @classmethod
     def from_env(cls) -> "PluginConfig":
         """Create configuration from environment variables."""
@@ -174,7 +181,21 @@ class PluginConfig:
             deliver_token_in_fragment=os.environ.get(
                 "OAUTH2_DELIVER_TOKEN_IN_FRAGMENT", "true"
             ).lower() == "true",
+            device_verification_url=os.environ.get(
+                "OAUTH2_DEVICE_VERIFICATION_URL", ""),
+            device_code_lifetime_seconds=int(os.environ.get(
+                "OAUTH2_DEVICE_CODE_LIFETIME_SECONDS", "600")),
+            device_poll_interval=int(os.environ.get(
+                "OAUTH2_DEVICE_POLL_INTERVAL", "5")),
         )
+
+    def get_device_verification_url(self) -> str:
+        """Return the absolute URL at which users approve device logins."""
+        if self.device_verification_url:
+            return self.device_verification_url
+        if self.frontend_url.startswith(("http://", "https://")):
+            return self.frontend_url
+        return self.base_url.rstrip("/") + "/" + self.frontend_url.lstrip("/")
 
 
 # Pre-configured provider templates
