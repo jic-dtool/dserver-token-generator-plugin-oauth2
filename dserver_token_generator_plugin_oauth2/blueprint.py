@@ -487,3 +487,7 @@ def auth_info():
         "login_url": url_for("oauth2_auth.login", _external=True),
         "configured": bool(config.oauth2.authorization_url and config.oauth2.client_id),
     })
+
+
+# Device authorization flow routes are registered on this blueprint.
+from . import device_flow  # noqa: E402,F401

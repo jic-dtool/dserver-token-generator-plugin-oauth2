@@ -7,7 +7,9 @@ A generic OAuth 2.0 / OpenID Connect token generator plugin for dserver that pro
 - **OAuth 2.0 Authorization Code flow** with PKCE support
 - **OpenID Connect** support for providers that offer it
 - **JWT token generation** after successful authentication
-- **User auto-provisioning** from OAuth2/OIDC claims
+- **User lookup** in dserver: users must be registered in dserver beforehand; their display name is filled in from the provider
+- **Device authorization flow** ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)) for command-line clients such as `dtool dserver login`
+- **Bounded sessions**: tokens can be refreshed, but at most `JWT_MAX_SESSION_HOURS` after the original login
 - **Flexible attribute mapping** to adapt to any provider's response format
 - **Built-in presets** for popular providers
 
@@ -27,8 +29,9 @@ pip install -e .
 
 1. Choose your OAuth2 provider and register an application to get client credentials
 2. Configure the environment variables (see Configuration below)
-3. Restart dserver
-4. Users can authenticate at `/auth/login`
+3. Run the database migrations (`flask db migrate` / `flask db upgrade`) for the device-login table
+4. Register users in dserver (see [Users](#users)) and restart dserver
+5. Users can authenticate in the browser at `/auth/oauth2/login`, and on the command line with `dtool dserver login <server>` (from [dtool-dserver](https://github.com/jic-dtool/dtool-dserver))
 
 ## Configuration
 
@@ -67,7 +70,7 @@ OAUTH2_CLIENT_SECRET: "${OAUTH2_CLIENT_SECRET:-}"
 | `OAUTH2_BASE_URL` | Base URL of your dserver instance | `http://localhost:5000` |
 | `OAUTH2_USERINFO_URL` | OIDC userinfo endpoint | (none) |
 | `OAUTH2_SCOPE` | OAuth2 scopes to request | `openid` |
-| `OAUTH2_REDIRECT_URI` | Callback URL | `{OAUTH2_BASE_URL}/auth/callback` |
+| `OAUTH2_REDIRECT_URI` | Callback URL | `{OAUTH2_BASE_URL}/auth/oauth2/callback` |
 
 #### Attribute Mapping
 
@@ -100,12 +103,34 @@ The plugin needs to know how to extract user information from the OAuth2 provide
 | `JWT_TOKEN_EXPIRY_HOURS` | Token validity period | `24` |
 | `JWT_MAX_SESSION_HOURS` | Maximum session age: tokens can be refreshed until this long after the original login (recorded in the `auth_time` claim), then the user must log in again | `168` |
 
-#### User Provisioning
+#### Users
+
+Users are **not** created on login: register them in dserver beforehand, with
+the username the provider reports (e.g. the ORCID iD), and grant permissions:
+
+```bash
+flask user add 0000-0002-1825-0097
+flask user search_permission 0000-0002-1825-0097 s3://my-bucket
+```
+
+A login of an unregistered user yields a token that dserver rejects.
+(`OAUTH2_AUTO_PROVISION_USERS` and `OAUTH2_DEFAULT_USER_PERMISSIONS` are read
+but have no effect.)
+
+#### Device Authorization (command-line login)
+
+Command-line clients such as `dtool dserver login` use the device authorization
+flow: the client shows a short code, the user approves it in the webapp, and
+the client receives a token. Pending requests are stored in dserver's SQL
+database (table `oauth2_device_authorization`), so run the database migrations
+(`flask db migrate` / `flask db upgrade`) after installing or upgrading the
+plugin.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OAUTH2_AUTO_PROVISION_USERS` | Create users on first login | `true` |
-| `OAUTH2_DEFAULT_USER_PERMISSIONS` | Permissions for new users | `search,retrieve` |
+| `OAUTH2_DEVICE_VERIFICATION_URL` | Page at which users approve device logins (the webapp, which opens its approval dialog for `?user_code=...`) | `OAUTH2_FRONTEND_URL` if absolute, otherwise `OAUTH2_BASE_URL` |
+| `OAUTH2_DEVICE_CODE_LIFETIME_SECONDS` | Time to approve a device login | `600` |
+| `OAUTH2_DEVICE_POLL_INTERVAL` | Minimum polling interval of clients in seconds | `5` |
 
 #### Redirect URLs
 
@@ -114,37 +139,51 @@ The plugin needs to know how to extract user information from the OAuth2 provide
 | `OAUTH2_FRONTEND_URL` | Frontend base URL | `/` |
 | `OAUTH2_LOGIN_SUCCESS_REDIRECT` | Redirect after successful login | `/` |
 | `OAUTH2_LOGIN_ERROR_REDIRECT` | Redirect after failed login | `/login?error=auth_failed` |
-| `OAUTH2_DELIVER_TOKEN_IN_FRAGMENT` | Deliver the JWT in the redirect URL fragment (`#token=...`). Set to `false` for session-only delivery: the token never appears in any URL and the (same-origin) webapp fetches it from `GET /auth/token` using the session cookie | `true` |
+| `OAUTH2_DELIVER_TOKEN_IN_FRAGMENT` | Deliver the JWT in the redirect URL fragment (`#token=...`). Set to `false` for session-only delivery: the token never appears in any URL and the (same-origin) webapp fetches it from `GET /auth/oauth2/token` using the session cookie | `true` |
 
 ## API Endpoints
 
-All endpoints are under the `/auth` prefix.
+All endpoints are under the `/auth/oauth2` prefix.
 
 ### Authentication Flow
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/auth/login` | GET | Initiates OAuth2 flow, redirects to provider |
-| `/auth/callback` | GET | Receives authorization code, exchanges for token |
-| `/auth/logout` | GET/POST | Clears the server-side session; redirects browsers to the frontend, returns JSON to clients that request it |
+| `/auth/oauth2/login` | GET | Initiates OAuth2 flow, redirects to provider |
+| `/auth/oauth2/callback` | GET | Receives authorization code, exchanges for token |
+| `/auth/oauth2/logout` | GET/POST | Clears the server-side session; redirects browsers to the frontend, returns JSON to clients that request it |
 
 ### Token Management
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/auth/token` | GET | Returns current user's JWT token |
-| `/auth/refresh` | POST | Refresh an existing JWT token, at most until `JWT_MAX_SESSION_HOURS` after the original login |
-| `/auth/verify` | POST | Verify a token and return its claims |
+| `/auth/oauth2/token` | GET | Returns current user's JWT token |
+| `/auth/oauth2/refresh` | POST | Refresh an existing JWT token, at most until `JWT_MAX_SESSION_HOURS` after the original login |
+| `/auth/oauth2/verify` | POST | Verify a token and return its claims |
+
+### Device Authorization (RFC 8628)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/auth/oauth2/device` | POST | Start a device login; returns `device_code`, `user_code`, `verification_uri(_complete)`, `expires_in`, `interval`. Optional body: `{"client_name": "..."}` |
+| `/auth/oauth2/device/token` | POST | Poll with `grant_type=urn:ietf:params:oauth:grant-type:device_code` and `device_code` (JSON or form). Returns `authorization_pending`, `slow_down`, `access_denied` or `expired_token` errors until approved, then the token (once) |
+| `/auth/oauth2/device/<user_code>` | GET | Describe a pending request (requires `Authorization: Bearer <token>`) |
+| `/auth/oauth2/device/<user_code>/approve` | POST | Approve a request (requires `Authorization: Bearer <token>`) |
+| `/auth/oauth2/device/<user_code>/deny` | POST | Deny a request (requires `Authorization: Bearer <token>`) |
+
+The token issued to the device inherits the login time (`auth_time`) of the
+approving session, so a device session ends when the approving browser
+session would, and approving cannot extend an expired session.
 
 ### Information
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/auth/info` | GET | Returns configured provider information |
+| `/auth/oauth2/info` | GET | Returns configured provider information |
 
 ### Response Examples
 
-**GET /auth/token** (authenticated user):
+**GET /auth/oauth2/token** (authenticated user):
 ```json
 {
   "token": "eyJhbGciOiJSUzI1NiIs...",
@@ -154,11 +193,11 @@ All endpoints are under the `/auth` prefix.
 }
 ```
 
-**GET /auth/info**:
+**GET /auth/oauth2/info**:
 ```json
 {
   "provider": "orcid",
-  "login_url": "http://localhost:5000/auth/login",
+  "login_url": "http://localhost:5000/auth/oauth2/login",
   "configured": true
 }
 ```
@@ -244,6 +283,8 @@ See the `provider-docs/` directory for detailed setup guides:
 3. **Validate redirect URIs** - Ensure they match exactly in provider configuration
 4. **Use state parameter** - The plugin automatically handles CSRF protection via OAuth2 state
 5. **Protect JWT keys** - Restrict file permissions on private key files
+6. **Bounded sessions** - Tokens record the login time (`auth_time`); refresh and device approval never extend a session beyond `JWT_MAX_SESSION_HOURS` after the login. dserver cannot revoke tokens, so keep `JWT_TOKEN_EXPIRY_HOURS` and `JWT_MAX_SESSION_HOURS` as short as practical
+7. **Audience and issuer** - Tokens carry `aud` and `iss` (`JWT_AUDIENCE`, `JWT_ISSUER`, default `dserver`), which dserver verifies by default
 
 ## Development
 
